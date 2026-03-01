@@ -1,43 +1,36 @@
-import os
-from huggingface_hub import InferenceClient
+from transformers import pipeline
+import warnings
+warnings.filterwarnings("ignore")
 
-try:
-    import streamlit as st
-    HF_TOKEN = st.secrets.get("HF_TOKEN", os.getenv("HF_TOKEN"))
-except Exception:
-    HF_TOKEN = os.getenv("HF_TOKEN")
+# runs fully locally, no API key needed
+qa_pipeline = pipeline(
+    "question-answering",
+    model="deepset/roberta-base-squad2",
+    tokenizer="deepset/roberta-base-squad2"
+)
 
 
 class AnswerGenerator:
     def __init__(self):
-        self.client = InferenceClient(
-            model="HuggingFaceH4/zephyr-7b-beta",
-            token=HF_TOKEN
-        )
+        pass
 
     def generate(self, question, context):
-        prompt = f"""<|system|>
-You are a helpful assistant that answers questions strictly from the Swiggy Annual Report FY 2023-24.
-Rules:
-- Only use information from the provided context.
-- If the answer is not in the context, say: "I couldn't find this information in the Swiggy Annual Report."
-- Cite the page number at the end like (Page X).
-- Be factual and concise.</s>
-<|user|>
-Context from Swiggy Annual Report:
-{context}
-
-Question: {question}</s>
-<|assistant|>"""
-
         try:
-            response = self.client.text_generation(
-                prompt,
-                max_new_tokens=512,
-                temperature=0.1,
-                repetition_penalty=1.1,
-                do_sample=False
+            # roberta-base-squad2 has a 512 token limit so trim context if needed
+            trimmed_context = context[:3000]
+
+            result = qa_pipeline(
+                question=question,
+                context=trimmed_context
             )
-            return response.strip()
+
+            score = result.get("score", 0)
+            answer = result.get("answer", "").strip()
+
+            if not answer or score < 0.05:
+                return "I couldn't find a clear answer to this in the Swiggy Annual Report. Try rephrasing your question."
+
+            return answer
+
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error generating answer: {str(e)}"
