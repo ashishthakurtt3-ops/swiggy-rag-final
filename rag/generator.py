@@ -1,26 +1,15 @@
 from transformers import pipeline
 
-# runs 100% locally on the server, zero API key needed
 _pipe = None
 
 def get_pipeline():
     global _pipe
     if _pipe is None:
         _pipe = pipeline(
-            "text2text-generation",
-            model="google/flan-t5-base",
+            "question-answering",
+            model="deepset/roberta-base-squad2"
         )
     return _pipe
-
-
-SYSTEM = """Answer the question using only the context below from the Swiggy Annual Report FY 2023-24.
-If the answer is not in the context, say: I couldn't find this in the Swiggy Annual Report.
-
-Context:
-{context}
-
-Question: {question}
-Answer:"""
 
 
 class AnswerGenerator:
@@ -30,14 +19,28 @@ class AnswerGenerator:
     def generate(self, question, context):
         try:
             pipe = get_pipeline()
-            prompt = SYSTEM.format(
-                context=context[:2000],
-                question=question
-            )
-            result = pipe(prompt, max_new_tokens=200, do_sample=False)
-            answer = result[0]["generated_text"].strip()
-            if not answer:
+
+            # split context into chunks and find best answer across all of them
+            chunks = context.split("---")
+            best_answer = ""
+            best_score = 0
+
+            for chunk in chunks:
+                chunk = chunk.strip()
+                if not chunk:
+                    continue
+                try:
+                    result = pipe(question=question, context=chunk[:2000])
+                    if result["score"] > best_score:
+                        best_score = result["score"]
+                        best_answer = result["answer"]
+                except:
+                    continue
+
+            if not best_answer or best_score < 0.01:
                 return "I couldn't find this information in the Swiggy Annual Report."
-            return answer
+
+            return best_answer
+
         except Exception as e:
             return f"Error: {str(e)}"
