@@ -1,36 +1,35 @@
-from transformers import pipeline
-import warnings
-warnings.filterwarnings("ignore")
+import os
+from groq import Groq
 
-# runs fully locally, no API key needed
-qa_pipeline = pipeline(
-    "question-answering",
-    model="deepset/roberta-base-squad2",
-    tokenizer="deepset/roberta-base-squad2"
-)
+try:
+    import streamlit as st
+    api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+except Exception:
+    api_key = os.getenv("GROQ_API_KEY")
+
+SYSTEM_PROMPT = """You are a helpful assistant that answers questions strictly based on the Swiggy Annual Report FY 2023-24.
+Rules:
+- Only use information from the provided context. Never use outside knowledge.
+- If the answer is not in the context, say: "I couldn't find this information in the Swiggy Annual Report."
+- Always cite the page number at the end like (Page X).
+- Keep answers factual and concise."""
 
 
 class AnswerGenerator:
     def __init__(self):
-        pass
+        self.client = Groq(api_key=api_key)
 
     def generate(self, question, context):
         try:
-            # roberta-base-squad2 has a 512 token limit so trim context if needed
-            trimmed_context = context[:3000]
-
-            result = qa_pipeline(
-                question=question,
-                context=trimmed_context
+            response = self.client.chat.completions.create(
+                model="llama3-8b-8192",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Context from Swiggy Annual Report:\n{context}\n\nQuestion: {question}\n\nAnswer based only on the context above:"}
+                ],
+                temperature=0.1,
+                max_tokens=512
             )
-
-            score = result.get("score", 0)
-            answer = result.get("answer", "").strip()
-
-            if not answer or score < 0.05:
-                return "I couldn't find a clear answer to this in the Swiggy Annual Report. Try rephrasing your question."
-
-            return answer
-
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            return f"Error generating answer: {str(e)}"
+            return f"Error: {str(e)}"
