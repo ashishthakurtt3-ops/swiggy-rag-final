@@ -37,6 +37,15 @@ st.caption("Ask anything about Swiggy's FY 2023-24 Annual Report. All answers co
 PDF_PATH = "Annual-Report-FY-2023-24.pdf"
 INDEX_DIR = "index"
 
+if "question" not in st.session_state:
+    st.session_state.question = ""
+if "answer" not in st.session_state:
+    st.session_state.answer = None
+if "sources" not in st.session_state:
+    st.session_state.sources = []
+if "auto_run" not in st.session_state:
+    st.session_state.auto_run = False
+
 
 @st.cache_resource(show_spinner=False)
 def build_and_load_pipeline():
@@ -69,13 +78,12 @@ with st.spinner("Loading... please wait (this may take a minute on first run)"):
     retriever, generator = build_and_load_pipeline()
 
 if retriever is None:
-    st.error("Annual Report PDF not found. Please make sure 'Annual-Report-FY-2023-24.pdf' is in the project folder.")
+    st.error("Annual Report PDF not found.")
     st.stop()
 
 st.success("Ready! Ask your question below.")
 st.divider()
 
-# sample questions
 st.markdown("**Quick questions:**")
 samples = [
     "What is Swiggy's total revenue?",
@@ -86,39 +94,45 @@ samples = [
 ]
 
 cols = st.columns(len(samples))
-clicked = None
 for i, q in enumerate(samples):
     if cols[i].button(q, use_container_width=True):
-        clicked = q
+        st.session_state.question = q
+        st.session_state.auto_run = True
 
 st.divider()
 
 question = st.text_input(
     "Your question:",
-    value=clicked or "",
+    value=st.session_state.question,
     placeholder="e.g. What is Swiggy's Adjusted EBITDA for FY 2023-24?"
 )
 show_sources = st.checkbox("Show source sections from the report", value=False)
 
-if st.button("Get Answer", type="primary") and question.strip():
+run_answer = st.button("Get Answer", type="primary") or st.session_state.auto_run
+
+if run_answer and question.strip():
+    st.session_state.auto_run = False
     with st.spinner("Searching the report and generating answer..."):
         try:
             context, sources = retriever.get_context(question)
             answer = generator.generate(question, context)
-
-            st.markdown("### Answer")
-            st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
-
-            pages = list(set(str(s["page"]) for s in sources))
-            st.markdown(f"**Sources: Page(s) {', '.join(pages)}**")
-
-            if show_sources:
-                with st.expander("View relevant sections from the report"):
-                    for i, s in enumerate(sources, 1):
-                        st.markdown(f"**Section {i} — Page {s['page']} (relevance: {s['score']})**")
-                        st.text(s["text"])
-                        st.divider()
-
+            st.session_state.answer = answer
+            st.session_state.sources = sources
         except Exception as e:
             st.error(f"Something went wrong: {str(e)}")
-            st.info("Please try again or rephrase your question.")
+            st.info("Please try again.")
+
+if st.session_state.answer:
+    st.markdown("### Answer")
+    st.markdown(f'<div class="answer-box">{st.session_state.answer}</div>', unsafe_allow_html=True)
+
+    if st.session_state.sources:
+        pages = list(set(str(s["page"]) for s in st.session_state.sources))
+        st.markdown(f"**Sources: Page(s) {', '.join(pages)}**")
+
+        if show_sources:
+            with st.expander("View relevant sections from the report"):
+                for i, s in enumerate(st.session_state.sources, 1):
+                    st.markdown(f"**Section {i} — Page {s['page']} (relevance: {s['score']})**")
+                    st.text(s["text"])
+                    st.divider()
