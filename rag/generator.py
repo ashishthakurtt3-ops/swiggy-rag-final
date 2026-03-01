@@ -1,35 +1,43 @@
-import os
-from groq import Groq
+from transformers import pipeline
 
-try:
-    import streamlit as st
-    api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
-except Exception:
-    api_key = os.getenv("GROQ_API_KEY")
+# runs 100% locally on the server, zero API key needed
+_pipe = None
 
-SYSTEM_PROMPT = """You are a helpful assistant that answers questions strictly based on the Swiggy Annual Report FY 2023-24.
-Rules:
-- Only use information from the provided context. Never use outside knowledge.
-- If the answer is not in the context, say: "I couldn't find this information in the Swiggy Annual Report."
-- Always cite the page number at the end like (Page X).
-- Keep answers factual and concise."""
+def get_pipeline():
+    global _pipe
+    if _pipe is None:
+        _pipe = pipeline(
+            "text2text-generation",
+            model="google/flan-t5-base",
+        )
+    return _pipe
+
+
+SYSTEM = """Answer the question using only the context below from the Swiggy Annual Report FY 2023-24.
+If the answer is not in the context, say: I couldn't find this in the Swiggy Annual Report.
+
+Context:
+{context}
+
+Question: {question}
+Answer:"""
 
 
 class AnswerGenerator:
     def __init__(self):
-        self.client = Groq(api_key=api_key)
+        pass
 
     def generate(self, question, context):
         try:
-            response = self.client.chat.completions.create(
-                model="llama3-8b-8192",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Context from Swiggy Annual Report:\n{context}\n\nQuestion: {question}\n\nAnswer based only on the context above:"}
-                ],
-                temperature=0.1,
-                max_tokens=512
+            pipe = get_pipeline()
+            prompt = SYSTEM.format(
+                context=context[:2000],
+                question=question
             )
-            return response.choices[0].message.content.strip()
+            result = pipe(prompt, max_new_tokens=200, do_sample=False)
+            answer = result[0]["generated_text"].strip()
+            if not answer:
+                return "I couldn't find this information in the Swiggy Annual Report."
+            return answer
         except Exception as e:
             return f"Error: {str(e)}"
